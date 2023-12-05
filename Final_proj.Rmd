@@ -47,6 +47,7 @@ library(kableExtra)
 library(broom)
 library(tufte)
 library(rmarkdown)
+library(cbsodataR)
 library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
 library(ggpubr)    # plotting R^2 value on ggplot point scatter
@@ -79,17 +80,21 @@ palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", 
 ```{r read_data,results = FALSE,warning = FALSE, message = FALSE}
 # import planning district and housing data
 district <- 
-  st_read("https://raw.githubusercontent.com/ObjQIAN/MUSA-508-Midterm/main/data/Planning_Districts.geojson") %>%
-  dplyr::select(DIST_NAME,ABBREV) %>% #Select data for later prediction
-  st_transform('ESRI:102729')
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/neighbourhoods.geojson") %>%
+ #dplyr::select(DIST_NAME,ABBREV) %>% #Select data for later prediction
+  st_transform('EPSG:7415')
 
 nhoods_0 <- 
-  st_read("https://raw.githubusercontent.com/ObjQIAN/MUSA-508-Midterm/main/data/studentData.geojson") %>%
-  st_transform('ESRI:102729')
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings.csv") %>%
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415')
 
-nhoods <- st_join(nhoods_0, district)%>%
-  mutate(Age = 2022 - year_built) 
+nhoods <- st_join(nhoods_0, district)#%>%
+  #mutate(Age = 2022 - year_built) 
   
+ggplot()+
+  geom_sf(data = nhoods_0)+
+  geom_sf(data = district , fill = NA)
 ```
 
 ```{r price_map,results = FALSE,warning = FALSE, message = FALSE}
