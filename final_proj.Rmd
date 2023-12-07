@@ -89,7 +89,9 @@ nhoods_0 <-
   st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
    st_transform('EPSG:7415')
 
-
+housing_value <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/housing_value_19.geojson") %>%
+   st_transform('EPSG:7415')
 
 nhoods <- st_join(nhoods_0, district)
 nhoods <-  transform(nhoods, price = as.numeric(price)) %>%
