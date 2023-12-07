@@ -1,0 +1,311 @@
+---
+title: "Airbnb"
+author: "Shengqian Wang, Watson Xin Wang"
+date: 2023-12-11
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+```
+
+
+# 1 Introduction
+
+
+
+# 2 Data Manipulation and Visualization
+
+## 2.0 Set up
+
+```{r , include=FALSE}
+
+# You can set some global options for knitting chunks
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load some libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) # plot correlation plot
+library(corrr)      # another way to plot correlation plot
+library(kableExtra)
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(ggpubr)    # plotting R^2 value on ggplot point scatter
+library(broom.mixed) # needed for effects plots
+library(stargazer)
+
+# functions and data directory
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette4 <- c("#005B96", "#FFD700", "#E63946", "#F0F0F0")
+palette5 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#F0F0F0")
+palette6 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#F0F0F0")
+palette7 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F0F0F0")
+palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F4A261", "#F0F0F0")
+
+```
+
+## 2.1 Data Wrangling
+
+### 2.1.1 Data loading
+
+#### (1) Load Airbnb dataset
+
+```{r read_data,results = FALSE,warning = FALSE, message = FALSE}
+# import planning district and housing data
+district <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/neighbourhoods.geojson") %>%
+  dplyr::select(neighbourhood, geometry) %>% 
+  st_transform('EPSG:7415')
+
+listings <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings.csv") %>%
+  dplyr::select(-neighbourhood_group) %>%  # delete the column that has no value
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+  st_transform('EPSG:7415')
+
+ggplot()+
+  geom_sf(data = listings)+
+  geom_sf(data = district , fill = NA)
+```
+
+#### (2) Load neighbourhood property characteristics
+
+characteristics | point data
+    -   `high-rise`: high-rise buildings built in each census tract
+    -   `green-roof`: green roofs with its surface in each census tract
+    -   `wall art`: number of wall art in each census tract
+    -   `market`: Number of market in each census tract
+    -   `swimming water`: Number of swimming pool in each census tract
+characteristics | line data
+    -   `tram_metro`: trams and metros in the whole city
+characteristics | plane data
+    -   `flood`：flood area in each census tract
+    -   `parking`: parking lot in each census tract
+    
+```{r,results = FALSE,warning = FALSE, message = FALSE}
+# 1.Load high-rise data with 3 attributes: height, year, and geometry
+highrise.sf <- 
+  st_read("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=HOOGBOUW_PUNT&THEMA=hoogbouw") %>%
+  dplyr::select(Hoogte, Jaar, geometry) %>% 
+  rename(
+    height = Hoogte,
+    year = Jaar
+  )%>%
+  st_transform('EPSG:7415')
+
+# 2.Load green roof data with 2 attributes
+greenroof.sf <- 
+  st_read("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=GROENE_DAKEN&THEMA=groene_daken") %>%
+  dplyr::select(Oppervlakte_m2, geometry) %>% 
+  rename(surface = Oppervlakte_m2)%>%
+  st_transform('EPSG:7415')
+
+# 3.Load wall art data
+wallart.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=WANDKUNST&THEMA=wandkunst')%>%
+  dplyr::select(geometry) %>%
+  st_transform('EPSG:7415')
+
+# 4.Load market data
+market.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=MARKTEN&THEMA=markten')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 5.Load swimming water data
+swimming.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=ZWEMWATER&THEMA=zwemwater')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 6.Load tram and metro data
+tram_metro.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_latlng.php?KAARTLAAG=TRAMMETRO_LIJNEN_2022&THEMA=trammetro')%>%
+  dplyr::select(Modaliteit, geometry) %>% 
+  rename(modality = Modaliteit)%>%
+  st_transform('EPSG:7415')
+
+# 7.Load flood data
+flood.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_latlng.php?KAARTLAAG=KLIMAAT_OVERSTROMING&THEMA=klimaatadaptatie')%>%
+  dplyr::select(geometry) %>%
+  st_transform('EPSG:7415')
+
+# 8.Load parking pressure data
+parking.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_latlng.php?KAARTLAAG=PARKEERDRUK_BUURTEN&THEMA=parkeerdruk')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('ESRI:102729')
+
+```
+
+### 2.1.2 Feature Engineering
+
+#### (3) Amendity data
+
+```{r}
+# 1.high-rise
+listings$highrise.Buffer <- listings %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(highrise.sf, counter = 1),., sum) %>%
+    pull(counter)
+listings <-
+  listings %>% 
+  mutate(
+    highrise_nn1 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(highrise.sf)), 1),
+    highrise_nn2 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(highrise.sf)), 2), 
+    highrise_nn3 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(highrise.sf)), 3), 
+    highrise_nn4 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(highrise.sf)), 4), 
+    highrise_nn5 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(highrise.sf)), 5))
+listings %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("highrise_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of high-rise") +
+     plotTheme()
+
+# 2.green roofs
+listings$greenroof.Buffer <- listings %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(greenroof.sf, counter = 1),., sum) %>%
+    pull(counter)
+listings <-
+  listings %>% 
+  mutate(
+    greenroof_nn1 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(greenroof.sf)), 1),
+    greenroof_nn2 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(greenroof.sf)), 2), 
+    greenroof_nn3 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(greenroof.sf)), 3), 
+    greenroof_nn4 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(greenroof.sf)), 4), 
+    greenroof_nn5 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(greenroof.sf)), 5))
+listings %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("greenroof_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of green roofs") +
+     plotTheme()
+
+# 3.wall art
+listings$wallart.Buffer <- listings %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(wallart.sf, counter = 1),., sum) %>%
+    pull(counter)
+listings <-
+  listings %>% 
+  mutate(
+    wallart_nn1 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 1),
+    wallart_nn2 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 2), 
+    wallart_nn3 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 3), 
+    wallart_nn4 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 4), 
+    wallart_nn5 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 5))
+listings %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("wallart_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of wall art") +
+     plotTheme()
+
+# 4.wall art
+listings$wallart.Buffer <- listings %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(wallart.sf, counter = 1),., sum) %>%
+    pull(counter)
+listings <-
+  listings %>% 
+  mutate(
+    wallart_nn1 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 1),
+    wallart_nn2 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 2), 
+    wallart_nn3 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 3), 
+    wallart_nn4 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 4), 
+    wallart_nn5 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(wallart.sf)), 5))
+listings %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("wallart_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of wall art") +
+     plotTheme()
+
+# 4.market data
+listings$market.Buffer <- listings %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(market.sf, counter = 1),., sum) %>%
+    pull(counter)
+listings <-
+  listings %>% 
+  mutate(
+    market_nn1 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(market.sf)), 1),
+    market_nn2 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(market.sf)), 2), 
+    market_nn3 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(market.sf)), 3), 
+    market_nn4 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(market.sf)), 4), 
+    market_nn5 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(market.sf)), 5))
+listings %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("market_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of markets") +
+     plotTheme()
+
+# 5.swimming pool data
+listings$swimming.Buffer <- listings %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(swimming.sf, counter = 1),., sum) %>%
+    pull(counter)
+listings <-
+  listings %>% 
+  mutate(
+    swimming_nn1 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(swimming.sf)), 1),
+    swimming_nn2 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(swimming.sf)), 2), 
+    swimming_nn3 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(swimming.sf)), 3), 
+    swimming_nn4 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(swimming.sf)), 4), 
+    swimming_nn5 = nn_function(st_coordinates(st_centroid(listings)), st_coordinates(st_centroid(swimming.sf)), 5))
+listings %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("swimming_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of swimming pools") +
+     plotTheme()
+
+```
