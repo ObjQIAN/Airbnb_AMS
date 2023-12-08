@@ -376,6 +376,20 @@ ams_census <-
 nhoods <- st_join(nhoods,ams_census)
 
 ```
+```{r}
+nhoods_sub <- nhoods%>%
+  select(number_of_reviews,calculated_host_listings_count,AvrVal,highrise.Buffer,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn1,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct)
+numericVars <- 
+  select_if(st_drop_geometry(nhoods_sub), is.numeric) %>% na.omit()
+
+ggcorrplot(
+  round(cor(numericVars), 1), 
+  p.mat = cor_pmat(numericVars),
+  colors = c("#005B96", "white", "#FFD700"),
+  type="lower",
+  insig = "blank") +  
+    labs(title = "Correlation across numeric variables") 
+```
 
 
 ```{r}
