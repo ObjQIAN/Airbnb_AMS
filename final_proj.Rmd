@@ -47,6 +47,7 @@ library(kableExtra)
 library(broom)
 library(tufte)
 library(rmarkdown)
+library(viridis)
 library(cbsodataR)
 library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
@@ -90,17 +91,28 @@ nhoods_0 <-
    st_transform('EPSG:7415')
 
 housing_value <- 
-  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/housing_value_19.geojson") %>%
-   st_transform('EPSG:7415')
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/housing_value_ams.geojson") %>%
+   st_transform('EPSG:7415') %>%
+  select(AvrVal)
+
+housing_value$ID0 <- seq.int(nrow(housing_value))
+housing_value_df <- housing_value %>% st_drop_geometry()
 
 nhoods <- st_join(nhoods_0, district)
 nhoods <-  transform(nhoods, price = as.numeric(price)) %>%
   filter(price!= 0) %>%
   st_intersection(district)
   
+
 ggplot()+
   geom_sf(data = nhoods)+
   geom_sf(data = district , fill = NA)
+```
+
+```{r}
+temp_nearest <- st_nearest_feature(nhoods,housing_value) %>% as_data_frame()%>%rename(ID0 = value)%>%left_join(housing_value_df, by = 'ID0')
+
+nhoods <- cbind(nhoods, temp_nearest)
 ```
 
 
@@ -351,7 +363,15 @@ nhoods %>%
 ams_census <- 
   st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/ams_census.geojson") %>%
    st_transform('EPSG:7415') %>%
-  dplyr::select(postcode4,geometry)
+  dplyr::select(postcode4,geometry,aantal_inwoners,aantal_mannen,aantal_vrouwen,aantal_inwoners_0_tot_15_jaar,aantal_inwoners_15_tot_25_jaar,aantal_inwoners_25_tot_45_jaar,aantal_inwoners_45_tot_65_jaar,aantal_inwoners_65_jaar_en_ouder,percentage_nederlandse_achtergrond,percentage_westerse_migr_achtergr,percentage_niet_westerse_migr_achtergr,gemiddelde_huishoudensgrootte,percentage_laag_inkomen_huishouden) %>%
+  rename(residents = aantal_inwoners,
+         male_residents = aantal_mannen,
+         famale_residents = aantal_vrouwen,
+         pct_dutch_bkg = percentage_nederlandse_achtergrond,
+         pct_wes_bkg = percentage_westerse_migr_achtergr,
+         pct_nonwes_bkg = percentage_niet_westerse_migr_achtergr,
+         avr_fam_size = gemiddelde_huishoudensgrootte,
+         low_income_pct = percentage_laag_inkomen_huishouden)
 
 nhoods <- st_join(nhoods,ams_census)
 
@@ -366,14 +386,14 @@ ams.training <- nhoods[inTrain,]
 ams.test <- nhoods[-inTrain,] 
 
 ams.training <- ams.training%>%
-  dplyr::select(price, postcode4, geometry,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3  ) 
+  dplyr::select(price, postcode4, geometry,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct  ) 
 
 ams.test <- ams.test%>%
-  dplyr::select(price, postcode4, geometry,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3 ) 
+  dplyr::select(price, postcode4, geometry,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct ) 
 
 reg.training <- 
   lm(price ~ ., data = as.data.frame(ams.training) %>% 
-                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3 ))
+                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct ))
 
 ams.test <-
   ams.test %>%
@@ -396,6 +416,14 @@ ams.test %>%
 ```
 
 
+```{r}
+ggplot(ams.test)+
+  geom_sf(aes(colour = listing_price.AbsError))+
+  geom_sf(data = district,fill = NA)+
+  scale_fill_viridis()+
+  labs(title = "MAE distribution") +
+  mapTheme()
+```
 
 
 ```{r}
