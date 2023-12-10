@@ -61,7 +61,7 @@ root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analyti
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
 palette4 <- c("#005B96", "#FFD700", "#E63946", "#F0F0F0")
-palette5 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#F0F0F0")
+palette5 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "purple")
 palette6 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#F0F0F0")
 palette7 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F0F0F0")
 palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F4A261", "#F0F0F0")
@@ -102,6 +102,18 @@ nhoods <- st_join(nhoods_0, district)
 nhoods <-  transform(nhoods, price = as.numeric(price)) %>%
   filter(price!= 0) %>%
   st_intersection(district)
+
+listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415') %>%
+  select(host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month ) %>%
+    na.omit()
+
+  listing_details <- lapply(listing_details, function(x) {x[x == ""] <- NA})%>%
+    as_data_frame()%>%
+    na.omit()
+    
+
   
 
 ggplot()+
@@ -122,9 +134,9 @@ nhoods <- cbind(nhoods, temp_nearest)
 
 # Mapping data
 ggplot() +
-  geom_sf(data = district, fill = "grey40") +
+  geom_sf(data = district, fill = "grey90") +
   geom_sf(data = nhoods, aes(colour = q5(price)), 
-          show.legend = "point", size = .35) +
+          show.legend = "point", size = .55) +
   scale_colour_manual(values = palette5,
                    labels=qBr(nhoods,"price"),
                    name="Quintile\nBreaks") +
@@ -224,10 +236,10 @@ nhoods %>%
   gather(Variable, Value, -price) %>% 
    ggplot(aes(Value, price)) +
      geom_point(size = .5) + 
-     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
      facet_wrap(~Variable, nrow = 1, scales = "free") +
      labs(title = "Price as a function of high-rise") +
-     plotTheme()
+     theme_light()
 
 # 2.green roofs
 nhoods$greenroof.Buffer <- nhoods %>% 
@@ -249,10 +261,10 @@ nhoods %>%
   gather(Variable, Value, -price) %>% 
    ggplot(aes(Value, price)) +
      geom_point(size = .5) + 
-     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
      facet_wrap(~Variable, nrow = 1, scales = "free") +
      labs(title = "Price as a function of green roofs") +
-     plotTheme()
+     theme_light()
 
 # 3.wall art
 nhoods$wallart.Buffer <- nhoods %>% 
@@ -274,10 +286,10 @@ nhoods %>%
   gather(Variable, Value, -price) %>% 
    ggplot(aes(Value, price)) +
      geom_point(size = .5) + 
-     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
      facet_wrap(~Variable, nrow = 1, scales = "free") +
      labs(title = "Price as a function of wall art") +
-     plotTheme()
+     theme_light()
 
 # 4.wall art
 nhoods$wallart.Buffer <- nhoods %>% 
@@ -299,10 +311,10 @@ nhoods %>%
   gather(Variable, Value, -price) %>% 
    ggplot(aes(Value, price)) +
      geom_point(size = .5) + 
-     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
      facet_wrap(~Variable, nrow = 1, scales = "free") +
      labs(title = "Price as a function of wall art") +
-     plotTheme()
+     theme_light()
 
 # 4.market data
 nhoods$market.Buffer <- nhoods %>% 
@@ -324,10 +336,10 @@ nhoods %>%
   gather(Variable, Value, -price) %>% 
    ggplot(aes(Value, price)) +
      geom_point(size = .5) + 
-     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
      facet_wrap(~Variable, nrow = 1, scales = "free") +
      labs(title = "Price as a function of markets") +
-     plotTheme()
+     theme_light()
 
 # 5.swimming pool data
 nhoods$swimming.Buffer <- nhoods %>% 
@@ -349,12 +361,24 @@ nhoods %>%
   gather(Variable, Value, -price) %>% 
    ggplot(aes(Value, price)) +
      geom_point(size = .5) + 
-     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#FA7800") +
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
      facet_wrap(~Variable, nrow = 1, scales = "free") +
      labs(title = "Price as a function of swimming pools") +
-     plotTheme()
+     theme_light()
 
 ```
+
+```{r}
+nhoods %>%
+  st_drop_geometry() %>%
+   ggplot(aes(AvrVal, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     labs(title = "Price as a function of House Price") +
+     theme_light()
+```
+
+
 #### Load Census Data
 ```{r,results = FALSE,warning = FALSE, message = FALSE}
 
@@ -378,7 +402,7 @@ nhoods <- st_join(nhoods,ams_census)
 ```
 ```{r}
 nhoods_sub <- nhoods%>%
-  select(number_of_reviews,calculated_host_listings_count,AvrVal,highrise.Buffer,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn1,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct)
+  select(price, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,highrise.Buffer,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn1,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct)
 numericVars <- 
   select_if(st_drop_geometry(nhoods_sub), is.numeric) %>% na.omit()
 
@@ -432,11 +456,16 @@ ams.test %>%
 
 ```{r}
 ggplot(ams.test)+
-  geom_sf(aes(colour = listing_price.AbsError))+
+  geom_sf(aes(colour = listing_price.APE))+
   geom_sf(data = district,fill = NA)+
   scale_fill_viridis()+
   labs(title = "MAE distribution") +
   mapTheme()
+```
+```{r}
+reg1 <-  lm(price ~ ., data = as.data.frame(nhoods) %>% 
+                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct ))
+summary(reg1)
 ```
 
 
