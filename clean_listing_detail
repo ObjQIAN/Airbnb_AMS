@@ -1,0 +1,13 @@
+listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415') %>%
+  select(host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month ) %>%
+    na.omit()
+
+# delete "N/A" from `host_response_time` and `host_response_rate`
+rows_to_remove <- listing_details$host_response_time == "N/A" | 
+                  is.na(listing_details$host_response_time) | 
+                  listing_details$host_response_rate == "N/A" | 
+                  is.na(listing_details$host_response_rate)
+
+listing_cleaned <- listing_details[!rows_to_remove, ]
