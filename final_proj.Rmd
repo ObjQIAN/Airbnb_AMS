@@ -108,7 +108,7 @@ listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS
    st_transform('EPSG:7415') %>%
   select(host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month ) %>%
     na.omit()
-
+## do not run
   listing_details <- lapply(listing_details, function(x) {x[x == ""] <- NA})%>%
     as_data_frame()%>%
     na.omit()
