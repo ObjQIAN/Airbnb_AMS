@@ -1,0 +1,88 @@
+# ==> Data Investigation code I used
+# check if the column has NA value
+any(is.na(df$geometry)) 
+# if so, how many NA value in this column
+sum(is.na(df$reviews_per_month))
+# to know the value distribution of a column
+table(df$geometry)
+
+
+# ==> Data Wrangling Process
+# 概要：
+#1. 总计处理23个column，目前还剩17600整的rows，累计减少2430个row
+#2. 还剩下最后一个column：host_since 需要把它转化成days，我正在处理中
+#3. 下面是23个column的具体处理方式，分为5个parts来处理：
+
+# use a short name to be convenient
+df <- listing_details
+
+# ===================================================> Part 1 | 12 columns do not need any modification (no NA included)
+# ==> 1. host_id：continuous numeric value
+# ==> 2. extra_people：continuous numeric value
+# ==> 3. minimum_nights：continuous numeric value
+# ==> 4. maximum_nights：continuous numeric value
+# ==> 5. accommodates：continuous numeric value
+
+# ==> 6. geometry：numeric value
+
+# ==> 7. host_has_profile_pic：2 categories
+# ==> 8. is_location_exact：2 categories
+# ==> 9. room_type：3 categories
+# ==> 10. cancellation_policy：4 categories
+# ==> 11. bed_type：5 categories
+# ==> 12. property_type：31 categories
+
+# ===================================================> Part 2 | 2 columns need to change specific "N/A" value
+# ===> 1. hos_response_time: change 'N/A' -> 'unknown'
+# to know the structure of the column
+value_counts <- table(df$host_response_time)
+print(value_counts)
+# change value name
+rows_to_change <- df$host_response_time == "N/A"
+df$host_response_time[rows_to_change] <- "unknow"
+
+# ===> 2. hos_response_rate: change 'N/A' -> '51%' | may need to concern during model building
+# to know the structure of the column
+value_counts <- table(df$host_response_rate)
+print(value_counts)
+# change value name
+rows_to_change <- df$host_response_rate == "unknow"
+df$host_response_rate[rows_to_change] <- "51%"
+
+# ===================================================> Part 3 | 4 columns need to delete a few NA values
+# ==> 1. host_since: it has only 4 NA value, so we delete these 4 rows
+df <- df[!is.na(df$host_since), ]
+
+# ==> 2. bathrooms: it has only 10 NA value, so we delete these 10 rows
+df <- df[!is.na(df$bathrooms), ]
+
+# ==> 3. bathrooms: it has only 8 NA value, so we delete these 8 rows
+df <- df[!is.na(df$bedrooms), ]
+
+# ==> 4. bathrooms: it has only 6 NA value, so we delete these 6 rows
+df <- df[!is.na(df$beds), ]
+
+# ===================================================> Part 4 | 3 columns need to delete nearly 2400 in total NA values
+# ==> 1. cleaning_fee: has 3616 NA
+# ==> 2. review_scores_rating:  has 2634 NA
+# ==> 3. reviews_per_month: has 2402 NA
+# 注：因为这3个column里面的NA值基本都集中在共同的row，所以暂时选择全部去掉，总共减少2402个row
+df <- df[!is.na(df$cleaning_fee), ]
+df <- df[!is.na(df$review_scores_rating), ]
+df <- df[!is.na(df$reviews_per_month), ]
+
+# ===================================================> Part 5: 2 columns need to communication
+# ==> 1. host_verification: 既不是number，也不是category，不确定是否在模型里可以用
+# ==> 2. amenities: 既不是number，也不是category，不确定是否在模型里可以用
+
+
+
+
+
+
+
+
+
+
+
+
