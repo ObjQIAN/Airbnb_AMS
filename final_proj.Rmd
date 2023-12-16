@@ -474,7 +474,6 @@ nhoods %>%
 ams_census <- 
   st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/ams_census.geojson") %>%
    st_transform('EPSG:7415') %>%
-  dplyr::select(postcode4,geometry,aantal_inwoners,aantal_mannen,aantal_vrouwen,aantal_inwoners_0_tot_15_jaar,aantal_inwoners_15_tot_25_jaar,aantal_inwoners_25_tot_45_jaar,aantal_inwoners_45_tot_65_jaar,aantal_inwoners_65_jaar_en_ouder,percentage_nederlandse_achtergrond,percentage_westerse_migr_achtergr,percentage_niet_westerse_migr_achtergr,gemiddelde_huishoudensgrootte,percentage_laag_inkomen_huishouden) %>%
   rename(residents = aantal_inwoners,
          male_residents = aantal_mannen,
          famale_residents = aantal_vrouwen,
@@ -482,15 +481,32 @@ ams_census <-
          pct_wes_bkg = percentage_westerse_migr_achtergr,
          pct_nonwes_bkg = percentage_niet_westerse_migr_achtergr,
          avr_fam_size = gemiddelde_huishoudensgrootte,
-         low_income_pct = percentage_laag_inkomen_huishouden)
+         low_income_pct = percentage_laag_inkomen_huishouden,
+         high_income_pct = percentage_hoog_inkomen_huishouden,
+         median_HH = mediaan_inkomen_huishouden,
+         rental_home =percentage_huurwoningen,
+         rental_corp = aantal_huurwoningen_in_bezit_woningcorporaties,
+         owned_pct = percentage_koopwoningen,
+         not_ocp_home =aantal_niet_bewoonde_woningen,
+         
+         gas_using = gemiddeld_gasverbruik_woning,
+         zip_house_value = gemiddelde_woz_waarde_woning,
+         
+         elec_using = gemiddeld_elektriciteitsverbruik_woning,
+         dis_to_train = dichtstbijzijnde_treinstation_afstand_in_km,
+         dis_to_sub = dichtstbijzijnde_overstapstation_afstand_in_km,
+         fire_station = dichtstbijzijnde_brandweerkazerne_afstand_in_km,
+         daycare_num = kinderdagverblijf_aantal_binnen_3_km,
+         )%>%
+  dplyr::select(postcode4,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents)
 
 nhoods <- st_join(nhoods,ams_census)
-
+#daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents
 ```
 ```{r}
 
 nhoods_sub <- nhoods%>%
-  select(id,price, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct,) %>%st_drop_geometry() 
+  select(id,price, neighbourhood, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents) %>%st_drop_geometry() 
 nhoods_sub <-transform(nhoods_sub, id = as.numeric(id))
 nhoods <-transform(nhoods, id = as.numeric(id))
 
@@ -502,7 +518,7 @@ numericVars <-
 ggcorrplot(
   round(cor(numericVars), 1), 
   p.mat = cor_pmat(numericVars),
-  colors = c("#005B96", "white", "#FFD700"),
+  colors = c("darkred", "white", "green"),
   type="lower",
   insig = "blank") +  
     labs(title = "Correlation across numeric variables") 
@@ -523,11 +539,7 @@ reg.training <-
 #nhoods<- left_join(listing_details,nhoods,by = 'id')
 
 inTrain <- createDataPartition(
-              y = paste(nhoods_sub$property_type,
-                        nhoods_sub$room_type,
-                        nhoods_sub$cancellation_policy,
-                        nhoods_sub$bed_type,
-                        nhoods_sub$host_has_profile_pic), 
+              y = paste(nhoods_sub$property_type), 
               p = .70, list = FALSE)
 ams.training <- nhoods_sub[inTrain,] 
 ams.test <- nhoods_sub[-inTrain,] 
@@ -541,10 +553,16 @@ ams.test <- nhoods_sub[-inTrain,]
  #  host_response_time,host_response_rate,amenities,
 reg.training <- 
   lm(price ~ ., data = as.data.frame(ams.training) %>% 
-                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
+                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
 #extra_people,host_since,
+
+
+reg2 <- 
+  lm(price ~ ., data = as.data.frame(ams.training) %>% 
+                             dplyr::select(price,neighbourhood,postcode4, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
+
 ams.test <-
-  ams.test %>%  dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths)%>%
+  ams.test %>%  dplyr::select(price,postcode4,neighbourhood, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths)%>%
   na.omit() 
 
 ams.test <- ams.test %>%
@@ -573,11 +591,6 @@ ggplot(ams.test)+
   mapTheme()
 ```
 
-```{r}
-reg1 <-  lm(price ~ ., data = as.data.frame(nhoods) %>% 
-                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct ))
-summary(reg1)
-```
 
 ```{r}
 summary(reg.training)
