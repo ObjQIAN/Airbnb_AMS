@@ -1,0 +1,856 @@
+---
+title: "Airbnb"
+author: "Shengqian Wang, Watson Xin Wang"
+date: 2023-12-11
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+```
+
+
+# 1 Introduction
+
+
+
+# 2 Data Manipulation and Visualization
+
+## 2.0 Set up
+
+
+
+```{r , include=FALSE}
+
+# You can set some global options for knitting chunks
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load some libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) # plot correlation plot
+library(corrr)      # another way to plot correlation plot
+library(kableExtra)
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(viridis)
+library(cbsodataR)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(ggpubr)    # plotting R^2 value on ggplot point scatter
+library(broom.mixed) # needed for effects plots
+library(stargazer)
+
+# functions and data directory
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette4 <- c("#005B96", "#FFD700", "#E63946", "#F0F0F0")
+palette5 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "purple")
+palette6 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#F0F0F0")
+palette7 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F0F0F0")
+palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F4A261", "#F0F0F0")
+
+```
+
+## 2.1 Data Wrangling
+
+### 2.1.1 Data loading
+
+
+
+#### (1) House Price and Internal Characteristics
+
+
+
+```{r read_data,results = FALSE,warning = FALSE, message = FALSE}
+# import planning district and housing data
+district <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/neighbourhoods.geojson") %>%
+ #dplyr::select(DIST_NAME,ABBREV) %>% #Select data for later prediction
+  st_transform('EPSG:7415')
+
+nhoods_0 <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings.csv") %>%
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415')
+
+
+nhoods <- st_join(nhoods_0, district)
+nhoods <-  transform(nhoods, price = as.numeric(price)) %>%
+  filter(price!= 0) %>%
+  filter(price > 40) %>%
+  filter(price < 600)%>%
+  st_intersection(district)
+
+ 
+## do not run
+ # listing_details <- lapply(listing_details, function(x) {x[x == ""] <- NA})%>%
+#    as_data_frame()%>%
+ #   na.omit()
+    
+
+  
+
+ggplot()+
+  geom_sf(data = nhoods)+
+  geom_sf(data = district , fill = NA)
+```
+
+
+
+```{r}
+# import listing details data
+listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415') %>%
+  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )%>% na.omit()
+
+listing_details$host_since <- as.Date(listing_details$host_since, format = "%Y-%m-%d")
+target_date <- as.Date("2019-12-31")
+listing_details$host_since_days <-  as.numeric(target_date - listing_details$host_since)
+
+#===> Part 2 | 2 columns need to change specific "N/A" value
+listing_details<- listing_details%>% mutate(host_response_time = ifelse(host_response_time == 'N/A', NaN, host_response_time))
+ 
+listing_details$host_response_rate <- as.numeric(gsub("%", "", listing_details$host_response_rate))
+
+
+  
+  
+# ==> Part 3 | 4 columns need to delete a few NA values  
+listing_details <-  listing_details[!is.na(listing_details$host_since) &
+                !is.na(listing_details$bathrooms) & 
+                !is.na(listing_details$bedrooms) & 
+                !is.na(listing_details$beds), ]
+
+#======> Part 4 | 3 columns need to delete nearly 2400 in total NA values
+listing_details$cleaning_fee <- 
+  as.numeric(gsub("\\$", "", listing_details$cleaning_fee))
+
+listing_details$cleaning_fee[is.na(listing_details$cleaning_fee)] <- 0
+
+listing_details$extra_people <- 
+  as.numeric(gsub("\\$", "", listing_details$extra_people))
+
+listing_details$extra_people[is.na(listing_details$extra_people)] <- 0
+listing_details$reviews_per_month[is.na(listing_details$reviews_per_month)] <- 0
+
+
+# ==> Part 5: array columns
+
+listing_details$host_veri_length <-
+    sapply(listing_details$host_verification, 
+           function(x) length(strsplit(gsub("\\[|\\]|'", "", x),
+                                       ",\\s*")[[1]]))
+
+listing_details$amenities_lengths <- sapply(listing_details$amenities, function(x) {
+    cleaned_content <- gsub("^\\{|\\}$", "", x)
+    elements <- strsplit(cleaned_content, ",(?=([^\"]*\"[^\"]*\")*[^\"]*$)", perl = TRUE)[[1]]
+    elements <- trimws(gsub("^\"|\"$", "", elements))
+    length(elements)
+})
+
+listing_details <- listing_details %>%
+  select(-amenities,-host_verifications,-host_since) %>%
+  na.omit()
+column_names_list <- list(names(listing_details))
+
+
+```
+
+
+
+```{r}
+# import listing details data
+listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415') %>%
+  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )%>% 
+
+# 
+# ==> 1. host_id：continuous numeric value
+# ==> 3. minimum_nights：continuous numeric value
+# ==> 4. maximum_nights：continuous numeric value
+# ==> 5. accommodates：continuous numeric value
+# ==> 7. host_has_profile_pic：2 categories
+# ==> 8. is_location_exact：2 categories
+# ==> 9. room_type：3 categories
+# ==> 10. cancellation_policy：4 categories
+# ==> 11. bed_type：5 categories
+# ==> 12. property_type：31 categories
+
+# date time calculation
+listing_details$host_since <- as.Date(listing_details$host_since, format = "%Y-%m-%d")
+target_date <- as.Date("2019-12-31")
+listing_details$host_since_days <-  as.numeric(target_date - listing_details$host_since)
+
+#===> Part 2 | 2 columns need to change specific "N/A" value
+ listing_details<- listing_details%>% mutate(host_response_time = ifelse(host_response_time == 'N/A', 'unknown', host_response_time))
+ 
+listing_details$host_response_rate <- as.numeric(gsub("%", "", listing_details$host_response_rate))
+
+listing_details <- listing_details %>% 
+    mutate(
+        host_response_rate = case_when(
+            host_response_rate %in% 0:1 ~ '~0%',
+            host_response_rate %in% 2:25 ~ '1-25%',
+            host_response_rate %in% 26:35 ~ '26-35%',
+            host_response_rate %in% 36:45 ~ '36-45%',
+            host_response_rate %in% 46:55 ~ '46-55%',
+            host_response_rate %in% 56:70 ~ '56-70%',
+            host_response_rate %in% 71:79 ~ '70-79%',
+            host_response_rate %in% 80:85 ~ '80-85%',
+           
+             host_response_rate %in% 86:90 ~ '86-90%',
+            host_response_rate %in% 91:95 ~ '91-95%',
+            host_response_rate %in% 96:98 ~ '96-98%',
+            host_response_rate %in% 99:100 ~ '99-100%',
+            is.na(host_response_rate) ~ 'no data')) 
+  
+  
+# ==> Part 3 | 4 columns need to delete a few NA values  
+listing_details <-  listing_details[!is.na(listing_details$host_since) &
+                !is.na(listing_details$bathrooms) & 
+                !is.na(listing_details$bedrooms) & 
+                !is.na(listing_details$beds), ]
+
+#======> Part 4 | 3 columns need to delete nearly 2400 in total NA values
+listing_details$cleaning_fee <- 
+  as.numeric(gsub("\\$", "", listing_details$cleaning_fee))
+
+listing_details$cleaning_fee[is.na(listing_details$cleaning_fee)] <- 0
+
+listing_details$extra_people <- 
+  as.numeric(gsub("\\$", "", listing_details$extra_people))
+
+listing_details$extra_people[is.na(listing_details$extra_people)] <- 0
+listing_details$reviews_per_month[is.na(listing_details$reviews_per_month)] <- 0
+
+
+# ==> Part 5: array columns
+
+listing_details$host_veri_length <-
+    sapply(listing_details$host_verification, 
+           function(x) length(strsplit(gsub("\\[|\\]|'", "", x),
+                                       ",\\s*")[[1]]))
+
+listing_details$amenities_lengths <- sapply(listing_details$amenities, function(x) {
+    cleaned_content <- gsub("^\\{|\\}$", "", x)
+    elements <- strsplit(cleaned_content, ",(?=([^\"]*\"[^\"]*\")*[^\"]*$)", perl = TRUE)[[1]]
+    elements <- trimws(gsub("^\"|\"$", "", elements))
+    length(elements)
+})
+
+listing_details <- listing_details %>%
+  select(-amenities,-host_verifications,-host_since) %>%
+  na.omit()
+column_names_list <- list(names(listing_details))
+
+#column_names_list
+#id,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths
+```
+
+
+
+
+
+```{r price_map,results = FALSE,warning = FALSE, message = FALSE}
+# ggplot, reorder
+
+# Mapping data
+ggplot() +
+  geom_sf(data = district, fill = "grey90") +
+  geom_sf(data = nhoods, aes(colour = q5(price)), 
+          show.legend = "point", size = .55) +
+  scale_colour_manual(values = palette5,
+                   labels=qBr(nhoods,"price"),
+                   name="Quintile\nBreaks") +
+  labs(title="Airbnb Listed Price, Amsterdam") +
+  mapTheme()
+
+```
+
+
+#### (2) Load neighbourhood property characteristics
+
+characteristics | point data
+    -   `high-rise`: high-rise buildings built in each census tract
+    -   `green-roof`: green roofs with its surface in each census tract
+    -   `wall art`: number of wall art in each census tract
+    -   `market`: Number of market in each census tract
+    -   `swimming water`: Number of swimming pool in each census tract
+characteristics | line data
+    -   `tram_metro`: trams and metros in the whole city
+characteristics | plane data
+    -   `flood`：flood area in each census tract
+    -   `parking`: parking lot in each census tract
+    
+```{r,results = FALSE,warning = FALSE, message = FALSE}
+# 1.Load high-rise data with 3 attributes: height, year, and geometry
+highrise.sf <- 
+  st_read("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=HOOGBOUW_PUNT&THEMA=hoogbouw") %>%
+  dplyr::select(Hoogte, Jaar, geometry) %>% 
+  rename(
+    height = Hoogte,
+    year = Jaar
+  )%>%
+  st_transform('EPSG:7415')
+
+# 2.Load green roof data with 2 attributes
+greenroof.sf <- 
+  st_read("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=GROENE_DAKEN&THEMA=groene_daken") %>%
+  dplyr::select(Oppervlakte_m2, geometry) %>% 
+  rename(surface = Oppervlakte_m2)%>%
+  st_transform('EPSG:7415')
+
+# 3.Load wall art data
+wallart.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=WANDKUNST&THEMA=wandkunst')%>%
+  dplyr::select(geometry) %>%
+  st_transform('EPSG:7415')
+
+# 4.Load market data
+market.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=MARKTEN&THEMA=markten')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 5.Load swimming water data
+swimming.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=ZWEMWATER&THEMA=zwemwater')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 6.Load tram and metro data
+tram_metro.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=TRAMMETRO_PUNTEN_2019&THEMA=trammetro')%>%
+  dplyr::select( geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 7.Load flood data
+flood.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=KLIMAAT_OVERSTROMING&THEMA=klimaatadaptatie')%>%
+  dplyr::select(geometry) %>%
+  st_transform('EPSG:7415')
+
+# 8.Load parking pressure data
+parking.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=PARKEERDRUK_BUURTEN&THEMA=parkeerdruk')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 9.Heating supply
+heating.sf <-  st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=STADSWARMTEKOUDE_WIJK&THEMA=stadswarmtekoude')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 10 parks
+ # https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=PARKPLANTSOENGROEN&THEMA=stadsparken
+
+# 11 green project
+ # https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=GROENPROJECTEN&THEMA=groenprojecten
+  
+  #12. compost
+ # https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=BUURTCOMPOST&THEMA=buurtcompost
+  
+
+```
+```{r}
+housing_value <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/housing_value_ams.geojson") %>%
+   st_transform('EPSG:7415') %>%
+  select(AvrVal)
+
+housing_value$ID0 <- seq.int(nrow(housing_value))
+housing_value_df <- housing_value %>% st_drop_geometry()
+
+temp_nearest <- st_nearest_feature(nhoods,housing_value) %>% as_data_frame()%>%rename(ID0 = value)%>%left_join(housing_value_df, by = 'ID0')
+
+nhoods <- cbind(nhoods, temp_nearest)
+
+```
+
+```{r}
+  #13. age
+age.sf  <-  st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=BOUWJAAR&THEMA=bouwjaar')%>%
+  st_transform('EPSG:7415')%>%
+  mutate(age = 2020-Bouwjaar)%>%
+  select(age)
+age.sf$ID1 <- seq.int(nrow(age.sf))
+age_df <- age.sf %>% st_drop_geometry()
+
+temp_near_age <- st_nearest_feature(nhoods,age.sf) %>% as_data_frame()%>%rename(ID1 = value)%>%left_join(age_df, by = 'ID1')
+
+
+nhoods <- cbind(nhoods, temp_near_age)
+```
+
+
+### 2.1.2 Feature Engineering
+
+#### (3) Amendity data
+
+```{r}
+# 1.high-rise
+nhoods$highrise.Buffer <- nhoods %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(highrise.sf, counter = 1),., sum) %>%
+    pull(counter)
+nhoods <-
+  nhoods %>% 
+  mutate(
+    highrise_nn1 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(highrise.sf)), 1),
+    highrise_nn2 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(highrise.sf)), 2), 
+    highrise_nn3 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(highrise.sf)), 3), 
+    highrise_nn4 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(highrise.sf)), 4), 
+    highrise_nn5 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(highrise.sf)), 5))
+nhoods %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("highrise_")) %>%
+  filter(price <= 600) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of high-rise") +
+     theme_light()
+
+# 2.green roofs
+nhoods$greenroof.Buffer <- nhoods %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(greenroof.sf, counter = 1),., sum) %>%
+    pull(counter)
+nhoods <-
+  nhoods %>% 
+  mutate(
+    greenroof_nn1 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(greenroof.sf)), 1),
+    greenroof_nn2 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(greenroof.sf)), 2), 
+    greenroof_nn3 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(greenroof.sf)), 3), 
+    greenroof_nn4 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(greenroof.sf)), 4), 
+    greenroof_nn5 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(greenroof.sf)), 5))
+nhoods %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("greenroof_")) %>%
+  filter(price <= 600) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of green roofs") +
+     theme_light()
+
+# 3.wall art
+nhoods$wallart.Buffer <- nhoods %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(wallart.sf, counter = 1),., sum) %>%
+    pull(counter)
+nhoods <-
+  nhoods %>% 
+  mutate(
+    wallart_nn1 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(wallart.sf)), 1),
+    wallart_nn2 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(wallart.sf)), 2), 
+    wallart_nn3 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(wallart.sf)), 3), 
+    wallart_nn4 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(wallart.sf)), 4), 
+    wallart_nn5 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(wallart.sf)), 5))
+nhoods %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("wallart_")) %>%
+  filter(price <= 600) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of wall art") +
+     theme_light()
+
+# 4.market data
+nhoods$market.Buffer <- nhoods %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(market.sf, counter = 1),., sum) %>%
+    pull(counter)
+nhoods <-
+  nhoods %>% 
+  mutate(
+    market_nn1 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(market.sf)), 1),
+    market_nn2 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(market.sf)), 2), 
+    market_nn3 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(market.sf)), 3), 
+    market_nn4 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(market.sf)), 4), 
+    market_nn5 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(market.sf)), 5))
+nhoods %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("market_")) %>%
+  filter(price <= 600) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of markets") +
+     theme_light()
+
+# 5.swimming pool data
+nhoods$swimming.Buffer <- nhoods %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(swimming.sf, counter = 1),., sum) %>%
+    pull(counter)
+nhoods <-
+  nhoods %>% 
+  mutate(
+    swimming_nn1 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(swimming.sf)), 1),
+    swimming_nn2 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(swimming.sf)), 2), 
+    swimming_nn3 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(swimming.sf)), 3), 
+    swimming_nn4 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(swimming.sf)), 4), 
+    swimming_nn5 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(swimming.sf)), 5))
+nhoods %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("swimming_")) %>%
+  filter(price <= 600) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of swimming pools") +
+     theme_light()
+
+#6 Tram & Metro
+
+
+nhoods$tram.Buffer <- nhoods %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(tram_metro.sf, counter = 1),., sum) %>%
+    pull(counter)
+nhoods <-
+  nhoods %>% 
+  mutate(
+    tram_nn1 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(tram_metro.sf)), 1),
+    tram_nn2 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(tram_metro.sf)), 2), 
+    tram_nn3 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(tram_metro.sf)), 3), 
+    tram_nn4 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(tram_metro.sf)), 4), 
+    tram_nn5 = nn_function(st_coordinates(st_centroid(nhoods)), st_coordinates(st_centroid(tram_metro.sf)), 5))
+nhoods %>%
+  st_drop_geometry() %>%
+  dplyr::select(price, starts_with("tram_")) %>%
+  filter(price <= 1000000) %>%
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     facet_wrap(~Variable, nrow = 1, scales = "free") +
+     labs(title = "Price as a function of Tram & Metro Stations") +
+     theme_light()
+
+```
+
+```{r}
+nhoods %>%
+  st_drop_geometry() %>%
+   ggplot(aes(AvrVal, price)) +
+     geom_point(size = .5) + 
+     geom_smooth(data = . %>% filter(price > 0), method = "lm", se=F, colour = "#005B96") +
+     labs(title = "Price as a function of House Price") +
+     theme_light()
+```
+
+
+#### Load Census Data
+```{r,results = FALSE,warning = FALSE, message = FALSE}
+
+# Load acs data, need data selection here
+
+ams_census <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/ams_census.geojson") %>%
+   st_transform('EPSG:7415') %>%
+  rename(residents = aantal_inwoners,
+         male_residents = aantal_mannen,
+         famale_residents = aantal_vrouwen,
+         pct_dutch_bkg = percentage_nederlandse_achtergrond,
+         pct_wes_bkg = percentage_westerse_migr_achtergr,
+         pct_nonwes_bkg = percentage_niet_westerse_migr_achtergr,
+         avr_fam_size = gemiddelde_huishoudensgrootte,
+         low_income_pct = percentage_laag_inkomen_huishouden,
+         high_income_pct = percentage_hoog_inkomen_huishouden,
+         median_HH = mediaan_inkomen_huishouden,
+         rental_home =percentage_huurwoningen,
+         rental_corp = aantal_huurwoningen_in_bezit_woningcorporaties,
+         owned_pct = percentage_koopwoningen,
+         not_ocp_home =aantal_niet_bewoonde_woningen,
+         
+         gas_using = gemiddeld_gasverbruik_woning,
+         zip_house_value = gemiddelde_woz_waarde_woning,
+         
+         elec_using = gemiddeld_elektriciteitsverbruik_woning,
+         dis_to_train = dichtstbijzijnde_treinstation_afstand_in_km,
+         dis_to_sub = dichtstbijzijnde_overstapstation_afstand_in_km,
+         fire_station = dichtstbijzijnde_brandweerkazerne_afstand_in_km,
+         daycare_num = kinderdagverblijf_aantal_binnen_3_km,
+         )%>%
+  dplyr::select(postcode4,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents)
+
+ams_census$median_HH_num <- ifelse(ams_census$median_HH == "00-20 laag", 1,
+                                   ifelse(ams_census$median_HH == "20-40 onder midden", 2,
+                                          ifelse(ams_census$median_HH == "20-60 onder midden tot midden", 3,
+                                                 ifelse(ams_census$median_HH == "40-60 midden", 4,
+                                                        ifelse(ams_census$median_HH == "40-80 midden tot boven midden", 5,
+                                                               ifelse(ams_census$median_HH == "60-100 boven midden tot hoog", 6,
+                                                                      ifelse(ams_census$median_HH == "60-80 boven midden", 7,
+                                                                             ifelse(ams_census$median_HH == "80-100 hoog", 8, NA))))))))
+nhoods <- st_join(nhoods,ams_census)
+#daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents
+```
+
+
+```{r}
+nhoods_sub <-transform(nhoods_sub, postcode4 = as.numeric(postcode4))
+nhoods_sub <- nhoods%>%
+  select(id,price, neighbourhood, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,age,tram_nn3, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH_num,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents) %>%st_drop_geometry() 
+nhoods_sub <-transform(nhoods_sub, id = as.numeric(id))
+nhoods <-transform(nhoods, id = as.numeric(id))
+
+nhoods_sub <- inner_join(listing_details, nhoods_sub, by = 'id')
+#nhoods_sub <- transform(nhoods_sub,extra_people = as.numeric(extra_people))
+numericVars <- 
+  select_if(st_drop_geometry(nhoods_sub), is.numeric) %>% na.omit() 
+
+ggcorrplot(
+  round(cor(numericVars), 1), 
+  p.mat = cor_pmat(numericVars),
+  colors = c("darkred", "white", "green"),
+  type="lower",
+  insig = "blank") +  
+    labs(title = "Correlation across numeric variables") 
+```
+
+We use the scatter plot to initially determine whether the following Numeric Features are suitable as our variables. As can be seen from the chart below, some of the features that may be useful are:
+
+
+```{r}
+st_drop_geometry(numericVars) %>% 
+  gather(Variable, Value, -price) %>% 
+   ggplot(aes(Value, price)) +
+     geom_point(size = .5) + 
+    geom_smooth(data = . %>% filter(price >0), method = "lm", se=F, colour = "#FA7800") +
+     facet_wrap(~Variable, ncol = 5, scales = "free") +
+     labs(title = "Price as a function of continuous variables") +
+     theme_light()
+```
+
+
+```{r}
+#nhoods<- left_join(listing_details,nhoods,by = 'id')
+
+
+
+data_to_train <- nhoods_sub %>%
+  select(neighbourhood,price, accommodates, AvrVal,bathrooms,bedrooms,beds,cleaning_fee,high_income_pct,greenroof_nn3,low_income_pct,market_nn3,median_HH_num,owned_pct,pct_dutch_bkg,pct_nonwes_bkg,pct_wes_bkg,reviews_per_month,tram_nn3,property_type,room_type)
+ 
+inTrain <- createDataPartition(
+              y = paste(data_to_train$property_type,data_to_train$room_type), 
+              p = .70, list = FALSE)
+ams.training <- data_to_train[inTrain,] %>% st_drop_geometry()
+ams.test <- data_to_train[-inTrain,] 
+
+
+
+#temp
+
+reg.training <-
+   lm(price ~ ., data = as.data.frame(ams.training)%>%select(-neighbourhood))
+
+
+hood.training<-
+   lm(price ~ ., data = as.data.frame(ams.training))
+
+
+
+
+ams.test <-
+  ams.test %>% 
+  na.omit() 
+
+ams.test <- ams.test %>%
+  mutate(Regression = "Baseline Regression",
+         listing_price.Predict = predict(reg.training, ams.test),
+         listing_price.Error = listing_price.Predict - price,
+         listing_price.AbsError = abs(listing_price.Predict - price),
+         listing_price.APE = (abs(listing_price.Predict - price)) / listing_price.Predict) 
+
+ams.test %>% 
+  st_drop_geometry() %>%
+  summarise(MAE = mean(listing_price.AbsError),
+            MAPE = mean(abs(listing_price.APE)*100)) %>%
+  kbl(col.name=c('Mean Absolute Error','Mean Absolute Percentage Error')) %>%
+  kable_classic()
+
+```
+
+```{r}
+ggplot(ams.test)+
+  geom_sf(aes(colour = listing_price.APE))+
+  geom_sf(data = district,fill = NA)+
+  scale_fill_viridis()+
+  labs(title = "MAE distribution") +
+  mapTheme()
+```
+
+
+```{r}
+broom::glance(reg.training) %>%
+  kable(caption = 'Table Summary of Model Evaluation Parameters') %>%
+  kable_styling("striped", full_width = F)
+```
+
+```{r}
+fitControl <- trainControl(method = "cv", number = 100)
+set.seed(825)
+
+reg.cv <- 
+  train(price ~ ., data = st_drop_geometry(data_to_train) %>% 
+         select(-neighbourhood), 
+        method = "lm", trControl = fitControl, na.action = na.pass)
+
+ggplot(data = reg.cv$resample) +
+  geom_histogram(aes(x = reg.cv$resample$MAE), fill = 'orange') +
+  labs(title="Distribution of Cross-validation MAE",
+       subtitle = "K = 100\n",
+       caption = "Figure RESULT 4.2") +
+  xlab('MAE of Model 2') +
+  ylab('Count') +
+  plotTheme()
+
+```
+
+```{r}
+coords <- st_coordinates(ams.test) 
+
+neighborList <- knn2nb(knearneigh(coords, 4))
+
+spatialWeights <- nb2listw(neighborList, style="W")
+
+ams.test$lagPrice <- lag.listw(spatialWeights, ams.test$price)
+```
+
+```{r}
+coords.test <-  st_coordinates(ams.test) 
+
+neighborList.test <- knn2nb(knearneigh(coords.test, 4))
+
+spatialWeights.test <- nb2listw(neighborList.test, style="W")
+
+ggplot() +
+  geom_point(data = ams.test, aes(x = lagPrice, y = price), size = 2) +
+  geom_smooth(data = ams.test, aes(x = lagPrice, y = price), method = "lm", se = F, colour = "#FA7800") +
+  labs(title = "Price as a function of the spatial lag of price",
+       x = "Spatial Lag of Price (Mean price of 5 nearest neighbors)",
+       y = "Sale Price")
+```
+```{r}
+moranTest <- moran.mc(ams.test$listing_price.Error, 
+                      spatialWeights.test, nsim = 999)
+
+ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
+  geom_histogram(binwidth = 0.01) +
+  geom_vline(aes(xintercept = moranTest$statistic), colour = "#FA7800",size=1) +
+  scale_x_continuous(limits = c(-1, 1)) +
+  labs(title="Observed and permuted Moran's I",
+       subtitle= "Observed Moran's I in orange",
+       x="Moran's I",
+       y="Count") +
+  plotTheme()
+```
+```{r}
+
+ams.test <- st_join(ams.test, ams_census)
+
+
+ams.test.nhood <-
+  ams.test %>%
+  mutate(Regression = "Neighborhood Effects",
+         listing_price.Predict = predict(hood.training, ams.test),
+         listing_price.Error = listing_price.Predict- price,
+         listing_price.AbsError = abs(listing_price.Predict- price),
+         listing_price.APE = (abs(listing_price.Predict- price)) /  listing_price.Predict)%>%
+  filter(price < 600)
+```
+
+```{r}
+
+bothRegressions <- 
+  rbind(
+    dplyr::select(ams.test, starts_with("listing_"), Regression, neighbourhood) %>%
+      mutate(lagPriceError = lag.listw(spatialWeights.test, listing_price.Error)),
+    dplyr::select(ams.test.nhood, starts_with("listing_"), Regression, neighbourhood) %>%
+      mutate(lagPriceError = lag.listw(spatialWeights.test, listing_price.Error)))  
+
+bothRegressions <- na.omit(bothRegressions)
+```
+
+```{r}
+st_drop_geometry(bothRegressions) %>%
+  gather(Variable, Value, -Regression, -neighbourhood) %>%
+  filter(Variable == "listing_price.AbsError" | Variable == "listing_price.APE") %>%
+  group_by(Regression, Variable) %>%
+    summarize(meanValue = mean(Value, na.rm = T)) %>%
+    spread(Variable, meanValue) %>%
+    kable()
+```
+
+```{r}
+ggplot()+
+   geom_sf(data= district,fill='grey80',color='transparent')+
+   geom_sf(data = ams.test, aes(colour = q5(listing_price.Predict)), 
+          show.legend = "point", size = .35) +
+   scale_colour_manual(values = palette5,
+                  labels=qBr(ams.test,"listing_price.Predict"),
+                   name="Quintile\nBreaks") +
+  labs(title="Predicted House Sale Price, Philadelphia") +
+  mapTheme()
+```
+
+```{r}
+st_drop_geometry(ams.test) %>%
+  group_by(Regression, neighbourhood) %>%
+  summarize(mean.MAPE = mean(abs(listing_price.APE * 100), na.rm = T)) %>%
+  ungroup() %>% 
+  left_join(district) %>%
+    st_sf() %>%
+    ggplot() + 
+      geom_sf(aes(fill = mean.MAPE)) +
+      scale_fill_gradient(low = palette5[1], high = palette5[5],
+                          name = "Mean Absolute Percent Error") +
+      labs(title = "Mean test set MAPE by neighborhood") +
+      mapTheme()
+```
+```{r}
+st_drop_geometry(ams.test.nhood) %>%
+  group_by(Regression, neighbourhood) %>%
+  filter(listing_price.APE <1) %>%
+  summarize(mean.MAPE = mean(abs(listing_price.APE * 100), na.rm = T)) %>%
+  ungroup() %>% 
+  left_join(district) %>%
+    st_sf() %>%
+    ggplot() + 
+      geom_sf(aes(fill = mean.MAPE)) +
+      scale_fill_gradient(low = palette5[1], high = palette5[5],
+                          name = "Mean Absolute Percent Error") +
+      labs(title = "Mean test set MAPE by neighborhood") +
+      mapTheme()
+```
+
+
+```{r}
+stophere
+```

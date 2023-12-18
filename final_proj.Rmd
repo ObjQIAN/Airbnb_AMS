@@ -90,17 +90,11 @@ nhoods_0 <-
   st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
    st_transform('EPSG:7415')
 
-housing_value <- 
-  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/housing_value_ams.geojson") %>%
-   st_transform('EPSG:7415') %>%
-  select(AvrVal)
-
-housing_value$ID0 <- seq.int(nrow(housing_value))
-housing_value_df <- housing_value %>% st_drop_geometry()
 
 nhoods <- st_join(nhoods_0, district)
 nhoods <-  transform(nhoods, price = as.numeric(price)) %>%
   filter(price!= 0) %>%
+  filter(price < 999)%>%
   st_intersection(district)
 
  
@@ -116,13 +110,74 @@ ggplot()+
   geom_sf(data = nhoods)+
   geom_sf(data = district , fill = NA)
 ```
+```{r}
+# import listing details data
+listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
+  st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
+   st_transform('EPSG:7415') %>%
+  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )%>% na.omit()
+
+listing_details$host_since <- as.Date(listing_details$host_since, format = "%Y-%m-%d")
+target_date <- as.Date("2019-12-31")
+listing_details$host_since_days <-  as.numeric(target_date - listing_details$host_since)
+
+#===> Part 2 | 2 columns need to change specific "N/A" value
+listing_details<- listing_details%>% mutate(host_response_time = ifelse(host_response_time == 'N/A', NaN, host_response_time))
+ 
+listing_details$host_response_rate <- as.numeric(gsub("%", "", listing_details$host_response_rate))
+
+
+  
+  
+# ==> Part 3 | 4 columns need to delete a few NA values  
+listing_details <-  listing_details[!is.na(listing_details$host_since) &
+                !is.na(listing_details$bathrooms) & 
+                !is.na(listing_details$bedrooms) & 
+                !is.na(listing_details$beds), ]
+
+#======> Part 4 | 3 columns need to delete nearly 2400 in total NA values
+listing_details$cleaning_fee <- 
+  as.numeric(gsub("\\$", "", listing_details$cleaning_fee))
+
+listing_details$cleaning_fee[is.na(listing_details$cleaning_fee)] <- 0
+
+listing_details$extra_people <- 
+  as.numeric(gsub("\\$", "", listing_details$extra_people))
+
+listing_details$extra_people[is.na(listing_details$extra_people)] <- 0
+listing_details$reviews_per_month[is.na(listing_details$reviews_per_month)] <- 0
+
+
+# ==> Part 5: array columns
+
+listing_details$host_veri_length <-
+    sapply(listing_details$host_verification, 
+           function(x) length(strsplit(gsub("\\[|\\]|'", "", x),
+                                       ",\\s*")[[1]]))
+
+listing_details$amenities_lengths <- sapply(listing_details$amenities, function(x) {
+    cleaned_content <- gsub("^\\{|\\}$", "", x)
+    elements <- strsplit(cleaned_content, ",(?=([^\"]*\"[^\"]*\")*[^\"]*$)", perl = TRUE)[[1]]
+    elements <- trimws(gsub("^\"|\"$", "", elements))
+    length(elements)
+})
+
+listing_details <- listing_details %>%
+  select(-amenities,-host_verifications,-host_since) %>%
+  na.omit()
+column_names_list <- list(names(listing_details))
+
+
+```
+
+
 
 ```{r}
 # import listing details data
 listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
   st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
    st_transform('EPSG:7415') %>%
-  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )
+  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )%>% 
 
 # 
 # ==> 1. host_id：continuous numeric value
@@ -208,11 +263,6 @@ column_names_list <- list(names(listing_details))
 ```
 
 
-```{r}
-temp_nearest <- st_nearest_feature(nhoods,housing_value) %>% as_data_frame()%>%rename(ID0 = value)%>%left_join(housing_value_df, by = 'ID0')
-
-nhoods <- cbind(nhoods, temp_nearest)
-```
 
 
 
@@ -281,22 +331,67 @@ swimming.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.ph
   st_transform('EPSG:7415')
 
 # 6.Load tram and metro data
-tram_metro.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_latlng.php?KAARTLAAG=TRAMMETRO_LIJNEN_2022&THEMA=trammetro')%>%
+tram_metro.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=TRAMMETRO_PUNTEN_2019&THEMA=trammetro')%>%
   dplyr::select(Modaliteit, geometry) %>% 
   rename(modality = Modaliteit)%>%
   st_transform('EPSG:7415')
 
 # 7.Load flood data
-flood.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_latlng.php?KAARTLAAG=KLIMAAT_OVERSTROMING&THEMA=klimaatadaptatie')%>%
+flood.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=KLIMAAT_OVERSTROMING&THEMA=klimaatadaptatie')%>%
   dplyr::select(geometry) %>%
   st_transform('EPSG:7415')
 
 # 8.Load parking pressure data
-parking.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_latlng.php?KAARTLAAG=PARKEERDRUK_BUURTEN&THEMA=parkeerdruk')%>%
+parking.sf <- st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=PARKEERDRUK_BUURTEN&THEMA=parkeerdruk')%>%
   dplyr::select(geometry) %>% 
   st_transform('EPSG:7415')
 
+# 9.Heating supply
+heating.sf <-  st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=STADSWARMTEKOUDE_WIJK&THEMA=stadswarmtekoude')%>%
+  dplyr::select(geometry) %>% 
+  st_transform('EPSG:7415')
+
+# 10 parks
+ # https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=PARKPLANTSOENGROEN&THEMA=stadsparken
+
+# 11 green project
+ # https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=GROENPROJECTEN&THEMA=groenprojecten
+  
+  #12. compost
+ # https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=BUURTCOMPOST&THEMA=buurtcompost
+  
+
 ```
+```{r}
+housing_value <- 
+  st_read("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/housing_value_ams.geojson") %>%
+   st_transform('EPSG:7415') %>%
+  select(AvrVal)
+
+housing_value$ID0 <- seq.int(nrow(housing_value))
+housing_value_df <- housing_value %>% st_drop_geometry()
+
+temp_nearest <- st_nearest_feature(nhoods,housing_value) %>% as_data_frame()%>%rename(ID0 = value)%>%left_join(housing_value_df, by = 'ID0')
+
+nhoods <- cbind(nhoods, temp_nearest)
+
+```
+
+```{r}
+  #13. age
+age.sf  <-  st_read('https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=BOUWJAAR&THEMA=bouwjaar')%>%
+  st_transform('EPSG:7415')%>%
+  mutate(age = 2020-Bouwjaar)%>%
+  select(age)
+age.sf$ID1 <- seq.int(nrow(age.sf))
+age_df <- age.sf %>% st_drop_geometry()
+
+temp_near_age <- st_nearest_feature(nhoods,age.sf) %>% as_data_frame()%>%rename(ID1 = value)%>%left_join(age_df, by = 'ID1')
+
+
+nhoods <- cbind(nhoods, temp_near_age)
+```
+
 
 ### 2.1.2 Feature Engineering
 
@@ -500,13 +595,23 @@ ams_census <-
          )%>%
   dplyr::select(postcode4,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents)
 
+ams_census$median_HH_num <- ifelse(ams_census$median_HH == "00-20 laag", 1,
+                                   ifelse(ams_census$median_HH == "20-40 onder midden", 2,
+                                          ifelse(ams_census$median_HH == "20-60 onder midden tot midden", 3,
+                                                 ifelse(ams_census$median_HH == "40-60 midden", 4,
+                                                        ifelse(ams_census$median_HH == "40-80 midden tot boven midden", 5,
+                                                               ifelse(ams_census$median_HH == "60-100 boven midden tot hoog", 6,
+                                                                      ifelse(ams_census$median_HH == "60-80 boven midden", 7,
+                                                                             ifelse(ams_census$median_HH == "80-100 hoog", 8, NA))))))))
 nhoods <- st_join(nhoods,ams_census)
 #daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents
 ```
-```{r}
 
+
+```{r}
+nhoods_sub <-transform(nhoods_sub, postcode4 = as.numeric(postcode4))
 nhoods_sub <- nhoods%>%
-  select(id,price, neighbourhood, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents) %>%st_drop_geometry() 
+  select(id,price, neighbourhood, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,age, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH_num,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents) %>%st_drop_geometry() 
 nhoods_sub <-transform(nhoods_sub, id = as.numeric(id))
 nhoods <-transform(nhoods, id = as.numeric(id))
 
@@ -538,6 +643,11 @@ reg.training <-
 ```{r}
 #nhoods<- left_join(listing_details,nhoods,by = 'id')
 
+var_list <- ()
+
+data_to_train <- nhoods_sub %>%
+  select()
+ 
 inTrain <- createDataPartition(
               y = paste(nhoods_sub$property_type), 
               p = .70, list = FALSE)
@@ -548,21 +658,30 @@ ams.test <- nhoods_sub[-inTrain,]
 
 #temp
 
+reg.training <-
+   lm(price ~ ., data = as.data.frame(ams.training) %>% 
+                             dplyr::select(price,market_nn3,swimming_nn3 ,fire_station  , not_ocp_home   ,rental_home,median_HH_num,
+famale_residents ,pct_dutch_bkg  ,male_residents  ,residents ,AvrVal  ,host_id  ,room_type,accommodates ,
+bathrooms ,bedrooms  ,cleaning_fee,minimum_nights,cancellation_policy,review_scores_rating,reviews_per_month,amenities_lengths))
+
+
 
 
  #  host_response_time,host_response_rate,amenities,
-reg.training <- 
-  lm(price ~ ., data = as.data.frame(ams.training) %>% 
-                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
-#extra_people,host_since,
 
+reg.training2 <- 
+  lm(price ~ ., data = as.data.frame(ams.training) %>% 
+                             dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH_num,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
+#extra_people,host_since,
+#dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,beds,bed_type,postcode4,property_type,
 
 reg2 <- 
   lm(price ~ ., data = as.data.frame(ams.training) %>% 
-                             dplyr::select(price,neighbourhood,postcode4, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
+                             dplyr::select(price,neighbourhood, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,pct_dutch_bkg,pct_nonwes_bkg,avr_fam_size,low_income_pct,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths))
+
 
 ams.test <-
-  ams.test %>%  dplyr::select(price,postcode4,neighbourhood, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths)%>%
+  ams.test %>%  dplyr::select(price,neighbourhood, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH_num,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths)%>%
   na.omit() 
 
 ams.test <- ams.test %>%
@@ -580,7 +699,15 @@ ams.test %>%
   kable_classic()
 
 ```
+```{r}
+xxx <- ams.training%>%dplyr::select(price, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents,AvrVal,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths)%>% st_drop_geometry()%>% na.omit()
+reg.rf <- randomForest(price ~ ., data = xxx, ntree = 500, mtry = 3)
 
+```
+
+```{r}
+summary(reg.rf)
+```
 
 ```{r}
 ggplot(ams.test)+
