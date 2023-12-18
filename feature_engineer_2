@@ -1,0 +1,24 @@
+# ==> about rooms
+# add `per_bathroom` based on `accommodates` and `bathrooms`
+listing_details$per_bathroom <- listing_details$per_bathroom / listing_details$accommodates
+# add `per_bed` based on `accommodates` and `bathrooms`
+listing_details$per_bed <- listing_details$beds / listing_details$accommodates
+# add `per_bed` based on `accommodates` and `bathrooms`
+listing_details$per_amenities <- listing_details$amenities_lengths / listing_details$accommodates
+
+
+# ==> about reviews
+# add `reviews_score_sum` based on `reviews_per_month` and listing_details$review_scores_rating
+listing_details$rating_sum <- listing_details$reviews_per_month * 12 * listing_details$review_scores_rating
+
+
+# ==> about nights
+# add `night_range`
+listing_details$night_range <- listing_details$maximum_nights - listing_details$minimum_nights
+
+
+# ==> about fees
+# add `price_sum`
+listing_details$price_sum <- listing_details$price + listing_details$cleaning_fee + listing_details$extra_people
+# add `price_sum_per`
+listing_details$price_sum_per <- (listing_details$price + listing_details$cleaning_fee + listing_details$extra_people) / listing_details$accommodates
