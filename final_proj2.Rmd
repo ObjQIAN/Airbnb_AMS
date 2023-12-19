@@ -16,6 +16,9 @@ knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 
 # 1 Introduction
 
+Since the inventing in 2009, Airbnb has been playing a significant role for traveling schedule. Evermore, it greatly changed the way people plan and arrange for a travel. As a unicorn that allow people to make better use of there own spare house, Airbnb accelerated and benefitted the use of property while doing a favor to travelers. However, a legend also could have some weakness especially at today - lots of competitor can steal the market easily from a previous Giant.
+
+For our personal using experience, the fact that Airbnb is weak especially for price comparing inbetween its own properties; recommendation algorithum, and 
 
 
 # 2 Data Manipulation and Visualization
@@ -114,7 +117,7 @@ ggplot()+
 
 
 
-```{r}
+
 # import listing details data
 listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
   st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
@@ -172,16 +175,13 @@ listing_details <- listing_details %>%
 column_names_list <- list(names(listing_details))
 
 
-```
-
-
 
 ```{r}
 # import listing details data
 listing_details<- read.csv("https://raw.githubusercontent.com/ObjQIAN/Airbnb_AMS/main/data/listings_details.csv",na.strings = c("", "NA")) %>%   
   st_as_sf(coords=c("longitude","latitude"), crs=4326) %>%
    st_transform('EPSG:7415') %>%
-  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )%>% 
+  select(id,host_id,host_since,host_response_time,host_response_rate,host_listings_count,host_verifications,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,amenities,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month )
 
 # 
 # ==> 1. host_id：continuous numeric value
@@ -265,6 +265,11 @@ column_names_list <- list(names(listing_details))
 #column_names_list
 #id,host_id,host_response_time,host_response_rate,host_listings_count,host_has_profile_pic,is_location_exact,property_type,room_type,accommodates,bathrooms,bedrooms,beds,bed_type,cleaning_fee,extra_people,minimum_nights,maximum_nights,cancellation_policy,review_scores_rating,reviews_per_month,host_since_days,host_veri_length,amenities_lengths
 ```
+
+
+
+
+
 
 
 
@@ -614,12 +619,12 @@ nhoods <- st_join(nhoods,ams_census)
 
 
 ```{r}
-nhoods_sub <-transform(nhoods_sub, postcode4 = as.numeric(postcode4))
+
 nhoods_sub <- nhoods%>%
   select(id,price, neighbourhood, postcode4,number_of_reviews,calculated_host_listings_count,AvrVal,age,tram_nn3, highrise_nn3,greenroof_nn3,wallart_nn3,market_nn3,swimming_nn3,daycare_num,fire_station,dis_to_sub,dis_to_train,elec_using,zip_house_value,gas_using,not_ocp_home,owned_pct,rental_corp,rental_home,median_HH_num,high_income_pct,low_income_pct,avr_fam_size,pct_nonwes_bkg,pct_wes_bkg,pct_dutch_bkg,famale_residents,male_residents,residents) %>%st_drop_geometry() 
 nhoods_sub <-transform(nhoods_sub, id = as.numeric(id))
 nhoods <-transform(nhoods, id = as.numeric(id))
-
+nhoods_sub <-transform(nhoods_sub, postcode4 = as.numeric(postcode4))
 nhoods_sub <- inner_join(listing_details, nhoods_sub, by = 'id')
 #nhoods_sub <- transform(nhoods_sub,extra_people = as.numeric(extra_people))
 numericVars <- 
@@ -648,19 +653,37 @@ st_drop_geometry(numericVars) %>%
      theme_light()
 ```
 
+```{r}
+data_to_train <- nhoods_sub %>%
+  select(price, accommodates, AvrVal,bathrooms,bedrooms,beds,cleaning_fee,high_income_pct,greenroof_nn3,low_income_pct,market_nn3,median_HH_num,owned_pct,pct_dutch_bkg,pct_nonwes_bkg,pct_wes_bkg,reviews_per_month,tram_nn3,room_type)
+#property_type,neighbourhood,
+numericVars_sel <- 
+  select_if(st_drop_geometry(data_to_train), is.numeric) %>% na.omit() 
+
+ggcorrplot(
+  round(cor(numericVars_sel), 1), 
+  p.mat = cor_pmat(numericVars_sel),
+  colors = c("darkred", "white", "green"),
+  type="lower",
+  insig = "blank") +  
+    labs(title = "Correlation across numeric variables") 
+data_to_train <- nhoods_sub %>%
+  select(neighbourhood,price, accommodates, AvrVal,bathrooms,bedrooms,beds,cleaning_fee,high_income_pct,greenroof_nn3,market_nn3,median_HH_num,owned_pct,pct_dutch_bkg,pct_wes_bkg,reviews_per_month,tram_nn3,property_type,room_type)
+```
+
+
 
 ```{r}
 #nhoods<- left_join(listing_details,nhoods,by = 'id')
 
 
 
-data_to_train <- nhoods_sub %>%
-  select(neighbourhood,price, accommodates, AvrVal,bathrooms,bedrooms,beds,cleaning_fee,high_income_pct,greenroof_nn3,low_income_pct,market_nn3,median_HH_num,owned_pct,pct_dutch_bkg,pct_nonwes_bkg,pct_wes_bkg,reviews_per_month,tram_nn3,property_type,room_type)
+
  
 inTrain <- createDataPartition(
               y = paste(data_to_train$property_type,data_to_train$room_type), 
               p = .70, list = FALSE)
-ams.training <- data_to_train[inTrain,] %>% st_drop_geometry()
+ams.training <- data_to_train[inTrain,]
 ams.test <- data_to_train[-inTrain,] 
 
 
@@ -668,14 +691,7 @@ ams.test <- data_to_train[-inTrain,]
 #temp
 
 reg.training <-
-   lm(price ~ ., data = as.data.frame(ams.training)%>%select(-neighbourhood))
-
-
-hood.training<-
-   lm(price ~ ., data = as.data.frame(ams.training))
-
-
-
+   lm(price ~ ., data = st_drop_geometry(ams.training))
 
 ams.test <-
   ams.test %>% 
@@ -698,6 +714,27 @@ ams.test %>%
 ```
 
 ```{r}
+coords <- st_coordinates(data_to_train) 
+
+neighborList <- knn2nb(knearneigh(coords, 4))
+
+spatialWeights <- nb2listw(neighborList, style="W")
+
+data_to_train$lagPrice <- lag.listw(spatialWeights, data_to_train$price)
+data_to_train_test <- data_to_train %>% select(-property_type)
+inTrain_nhood <- createDataPartition(
+              y = paste(data_to_train_test$room_type), 
+              p = .70, list = FALSE)
+nhood.training <- data_to_train[inTrain_nhood,]
+nhood.test <- data_to_train[-inTrain_nhood,] 
+
+
+hood.training<-
+   lm(price ~ ., data = st_drop_geometry(nhood.training))
+summary(hood.training)
+```
+
+```{r}
 ggplot(ams.test)+
   geom_sf(aes(colour = listing_price.APE))+
   geom_sf(data = district,fill = NA)+
@@ -711,6 +748,22 @@ ggplot(ams.test)+
 broom::glance(reg.training) %>%
   kable(caption = 'Table Summary of Model Evaluation Parameters') %>%
   kable_styling("striped", full_width = F)
+```
+```{r}
+coords <- st_coordinates(ams.training) 
+
+neighborList <- knn2nb(knearneigh(coords, 4))
+
+spatialWeights <- nb2listw(neighborList, style="W")
+
+ams.training$lagPrice <- lag.listw(spatialWeights, ams.training$price)
+```
+
+```{r}
+ams.training_lag <- ams.training%>% st_drop_geometry()
+lag.training<-
+   lm(price ~ ., data = as.data.frame(ams.training_lag))
+
 ```
 
 ```{r}
@@ -773,7 +826,7 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
 ```
 ```{r}
 
-ams.test <- st_join(ams.test, ams_census)
+#ams.test <- st_join(ams.test, ams_census)
 
 
 ams.test.nhood <-
@@ -834,6 +887,8 @@ st_drop_geometry(ams.test) %>%
       labs(title = "Mean test set MAPE by neighborhood") +
       mapTheme()
 ```
+
+
 ```{r}
 st_drop_geometry(ams.test.nhood) %>%
   group_by(Regression, neighbourhood) %>%
