@@ -1,0 +1,39 @@
+Page 1: Introduction
+Good day, everyone. My name is Watson, and my partner is Shengqian. I’m here to introduce our innovative product, Trrendy. We are committed to assisting young students in finding budget-friendly accommodations through Airbnb during their travels in Amsterdam. Our motto, “Travel Savvy with Price Savvy,” encapsulates our ambition.
+
+Page 2: Airbnb's Pricing Challenge
+Currently, Airbnb faces a significant issue with price transparency. Many users, as highlighted in recent tweets, have expressed frustration with extra-budgetary rental prices. These concerns underline the need for a more transparent approach.
+
+Page 3: Target Audience - Student Travelers
+Our focus is on young, budget-conscious students seeking safe, affordable, and conveniently located accommodation. Their preferences, mood, and selected dates are pivotal in our service model.
+
+Page 4: Tackling Inconvenient UI
+Airbnb’s existing filter system is complex and underused. Furthermore, it lacks a clear price reference, making it challenging for users to assess room options effectively.
+
+Page 5: Introducing Trrendy's Strategy
+Our solution enhances the Airbnb experience. Users typically follow a simple process: log in, search, and decide. Trrendy, as an Airbnb plugin, adds two crucial steps: input information into our tool and compare prices. This approach ensures more informed decisions.
+
+Page 6: Trrendy's Workflow
+Trrendy operates by gathering two types of data: Airbnb API data, including location, pricing, and host details, and user input analysis, focusing on mood, needs, dates, and neighborhood preferences. Our model then processes this data, offering price comparisons, value recommendations, and a wider range of options, even for new or less-reviewed listings.
+
+Page 7: New UI - Input Information
+We propose adding an input window to Airbnb’s interface, allowing users to specify criteria like mood, budget, and location. This feature aims to replace the less efficient existing filter system.
+
+Page 8: New UI - Price Indication
+Our interface will also display suggested prices next to Airbnb's listings, using red and green color codes. Red indicates a price higher than our suggestion, with the intensity indicating the premium. Green suggests a lower price, offering potential savings.
+
+Page 9: Direct Recommendations
+Moreover, Trrendy will also provide direct recommendations on whether a listed price is excessively high or exceptionally low, aiding users in making better decisions.
+
+Page 10: Feature Selection
+Our model focuses on two main data categories: property features like room types and host responsiveness, and neighborhood data, emphasizing amenities and attractions that are crucial for both convenience and enjoyment.
+
+Page 11: Feature Correlation
+In our feature correlation analysis, we discovered a significant relationship between market data, average rental prices, and user preferences, aiding in refining our predictive model.
+
+Page 12: Model Performance
+While our model is still evolving, initial performance metrics, including prediction error and R-square scores, show promise. Further data integration and additional indicators are planned to enhance user relevance.
+
+
+Page 13: Core Strengths
+In conclusion, Trrendy's core strengths lie in our data-driven pricing suggestions, a more efficient filtering system, a user-friendly interface, and an iterative algorithm that continuously improves our service.
